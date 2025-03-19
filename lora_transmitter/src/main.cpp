@@ -31,6 +31,10 @@
 //            or left floating.
 SX1272 lora = new LoRa;
 
+// Functions declarations
+void setFlag(void);
+byte LowerByte(int num);
+
 // save transmission state between loops
 int transmissionState = ERR_NONE;
 
@@ -40,23 +44,12 @@ volatile bool transmittedFlag = false;
 // disable interrupt when it's not needed
 volatile bool enableInterrupt = true;
 
-// this function is called when a complete packet
-// is transmitted by the module
-// IMPORTANT: this function MUST be 'void' type
-//            and MUST NOT have any arguments!
-void setFlag(void) {
-  // check if the interrupt is enabled
-  if(!enableInterrupt) {
-    return;
-  }
-
-  // we sent a packet, set the flag
-  transmittedFlag = true;
-}
-
-
 void setup() {
   Serial.begin(9600);
+
+  int num = 720;
+
+  Serial.println(LowerByte(num));
 
   // initialize SX1278 with default settings
   Serial.print(F("Initializing ... "));
@@ -144,3 +137,31 @@ void loop() {
     enableInterrupt = true;
   }
 }
+
+
+// this function is called when a complete packet
+// is transmitted by the module
+// IMPORTANT: this function MUST be 'void' type
+//            and MUST NOT have any arguments!
+void setFlag(void) {
+  // check if the interrupt is enabled
+  if(!enableInterrupt) {
+    return;
+  }
+
+  // we sent a packet, set the flag
+  transmittedFlag = true;
+}
+
+
+byte LowerByte(int num){
+  int mask = 255; // bin = '1111 1111'
+  int lowerResult = mask & num;
+  byte LowerByte = (byte)lowerResult;
+  return LowerByte;
+}
+
+// byte UpperByte(int num){
+
+// }
+
