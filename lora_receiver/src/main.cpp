@@ -24,6 +24,11 @@
 #include "Arduino.h"
 #include <LoRaLib.h>
 
+#define NODE_LOCAL_ADRESS 0x11
+#define PROB_SCALE 10000
+#define MSG_LEN 9
+#define ERR_VAL 65535 // max value of received integer, is treated as error value
+
 // create instance of LoRa class using SX1278 module
 // this pinout corresponds to RadioShield
 // https://github.com/jgromes/RadioShield
@@ -46,6 +51,12 @@ volatile bool receivedFlag = false;
 
 // disable interrupt when it's not needed
 volatile bool enableInterrupt = true;
+
+// Functions declarations
+int decodeUpperByte(byte upper_byte);
+int decodeNum(byte lower_byte, byte upper_byte);
+bool readMsg(byte arr[MSG_LEN], byte *transm_id, int *flame, int *gas, int *smoke, int *prob);
+void printMsg(byte transm_id, int flame, int gas, int smoke, int prob);
 
 void setFlag(void) {
   // check if the interrupt is enabled
@@ -117,6 +128,13 @@ void setup() {
 
 
 void loop() {
+  //variables for received sensor readings, ID, etc.
+  byte transm_id;
+  int flame;
+  int gas;
+  int smoke;
+  int scaled_probability;
+
   // check if the flag is set
 
   //Serial.print(F("received flag: "));
@@ -128,39 +146,34 @@ void loop() {
 
     // reset flag
     receivedFlag = false;
-
-    // you can read received data as an Arduino String
-    String str;
-    int state = lora.readData(str);
-
-    // you can also read received data as byte array
-    /*
-      byte byteArr[8];
-      int state = lora.readData(byteArr, 8);
-    */
+    
+    // buffer - byte array for received data
+    byte byteArr[MSG_LEN];
+    int state = lora.readData(byteArr, MSG_LEN);
+    
 
     if (state == ERR_NONE) {
       // packet was successfully received
       Serial.println(F("Received packet!"));
 
       // print data of the packet
-      Serial.print(F("Data:\t\t\t"));
-      Serial.println(str);
+      //Serial.print(F("Data:\t\t\t"));
+      //Serial.println(str);
 
-      // print RSSI (Received Signal Strength Indicator)
-      Serial.print(F("RSSI:\t\t\t"));
-      Serial.print(lora.getRSSI());
-      Serial.println(F(" dBm"));
+      Serial.println("Bytearray: ");
+      for(auto i: byteArr){
+        Serial.print(i);
+        Serial.print(", ");
+      }
+      Serial.print("\n");
+      
+      bool success = readMsg(byteArr, &transm_id, &flame, &gas, &smoke, &scaled_probability);
 
-      // print SNR (Signal-to-Noise Ratio)
-      Serial.print(F("SNR:\t\t\t"));
-      Serial.print(lora.getSNR());
-      Serial.println(F(" dB"));
+      printMsg(transm_id, flame, gas, smoke, scaled_probability);
 
-      // print frequency error
-      Serial.print(F("Frequency error:\t"));
-      Serial.print(lora.getFrequencyError());
-      Serial.println(F(" Hz"));
+      Serial.print("received values valid: ");
+      Serial.println(success);
+
 
     } else if (state == ERR_CRC_MISMATCH) {
       // packet was received, but is malformed
@@ -174,4 +187,40 @@ void loop() {
     state = lora.startReceive();
   }
 
+}
+
+int decodeUpperByte(byte upper_byte){
+  int shifted = (int)upper_byte << 8;
+  return shifted;
+} 
+
+int decodeNum(byte lower_byte, byte upper_byte) {
+  int decoded_number = (int)lower_byte | decodeUpperByte(upper_byte);
+  return decoded_number;
+}
+
+bool readMsg(byte arr[MSG_LEN], byte *transm_id, int *flame, int *gas, int *smoke, int *prob){
+  *transm_id = arr[0];
+  *flame = decodeNum(arr[2], arr[1]);
+  *gas = decodeNum(arr[4], arr[3]);
+  *smoke = decodeNum(arr[6], arr[5]);
+  *prob = decodeNum(arr[8], arr[7]);
+  if(*flame >= ERR_VAL || *gas >= ERR_VAL||*smoke >= ERR_VAL||*prob >= ERR_VAL){
+    return false;
+  }
+  return true; 
+}
+
+void printMsg(byte transm_id, int flame, int gas, int smoke, int prob){
+  Serial.print(F("transmitter ID: "));
+  Serial.print(transm_id);
+  Serial.print(F(", flame: "));
+  Serial.print(flame);
+  Serial.print(F(", gas: "));
+  Serial.print(gas);
+  Serial.print(F(", smoke: "));
+  Serial.print(smoke);
+  Serial.print(F(", prob: "));
+  Serial.print(prob);
+  Serial.println();
 }
