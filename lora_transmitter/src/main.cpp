@@ -1,13 +1,4 @@
 /*
-   LoRaLib Transmit with Interrupts Example
-
-   This example transmits LoRa packets with one second delays
-   between them. Each packet contains up to 256 bytes
-   of data, in the form of:
-    - Arduino String
-    - null-terminated char array (C-string)
-    - arbitrary binary data (byte array)
-
    For more detailed information, see the LoRaLib Wiki
    https://github.com/jgromes/LoRaLib/wiki
 
@@ -31,24 +22,31 @@
 //            or left floating.
 SX1272 lora = new LoRa;
 
-// Functions declarations
-void setFlag(void);
-byte LowerByte(int num);
-byte UpperByte(int num);
-bool devide_num_into_bytes(int num, byte *lower_byte, byte *upper_byte);
-int decodeUpperByte(byte upper_byte);
-int decode_num(byte lower_byte, byte upper_byte);
+// Device adress
+#define LOCAL_ADRESS 0x11
+#define PROB_SCALE 10000
+#define MSG_LEN 9
+#define ERR_VALUE 65535
 
-struct {
+// Structs
+struct encodedInTwoBytes{
   byte upper_byte;
   byte lower_byte;
-} encoded_number;
+};
+
+// Functions declarations
+void setFlag(void);
+byte encodeLowerByte(int num);
+byte encodeUpperByte(int num);
+bool encodeNumber(int num, encodedInTwoBytes *encoded);
+int decodeUpperByte(byte upper_byte);
+int decodeNumber(byte lower_byte, byte upper_byte);
 
 // save transmission state between loops
 int transmissionState = ERR_NONE;
 
 // flag to indicate that a packet was sent
-volatile bool transmittedFlag = false;
+volatile bool transmittedFlag = true;
 
 // disable interrupt when it's not needed
 volatile bool enableInterrupt = true;
@@ -76,35 +74,29 @@ void setup() {
     while (true);
   }
 
-  // set the function that will be called
-  // when packet transmission is finished
+  // set the function that will be called when packet transmission is finished
   lora.setDio0Action(setFlag);
 
-  // start transmitting the first packet
-  Serial.print(F("Sending first packet ... "));
-
-  // you can transmit C-string or Arduino string up to
-  // 256 characters long
-  transmissionState = lora.startTransmit("Hello SPD!");
-
-  // you can also transmit byte array up to 256 bytes long
-  /*
-    byte byteArr[] = {0x01, 0x23, 0x45, 0x56,
-                      0x78, 0xAB, 0xCD, 0xEF};
-    state = lora.startTransmit(byteArr, 8);
-  */
+  // setup finished
+  Serial.print(F("Setup finished."));
 }
 
-
 void loop() {
+  int smoke = 273;
+  int flame = 514;
+  int gass = 4021;
+  float fire_prob = 0.053;
+  int scaled_probability = (int)(fire_prob*PROB_SCALE);
 
-  int num = 278;
+  encodedInTwoBytes encoded_smoke;
+  encodedInTwoBytes encoded_flame;
+  encodedInTwoBytes encoded_gass;
+  encodedInTwoBytes encoded_prob;
 
-  delay(1000);
-
-  bool res = devide_num_into_bytes(num, &encoded_number.lower_byte, &encoded_number.upper_byte);
-
-  int decoded_number = decode_num(encoded_number.lower_byte, encoded_number.upper_byte);
+  bool res_smoke = encodeNumber(smoke, &encoded_smoke);
+  bool res_flame = encodeNumber(flame, &encoded_flame);
+  bool res_gass = encodeNumber(gass, &encoded_gass);
+  bool res_prob = encodeNumber(scaled_probability, &encoded_prob);
 
   // check if the previous transmission finished
   if(transmittedFlag) {
@@ -118,39 +110,27 @@ void loop() {
     if (transmissionState == ERR_NONE) {
       // packet was successfully sent
       Serial.println(F("transmission finished!"));
-
-      // NOTE: when using interrupt-driven transmit method,
-      //       it is not possible to automatically measure
-      //       transmission data rate using getDataRate()
-
     } else {
       Serial.print(F("failed, code "));
       Serial.println(transmissionState);
-
     }
 
-    // wait a second before transmitting again
-    delay(1000);
+    // wait 2 seconds before transmitting again
+    delay(2000);
 
     // send another one
     Serial.print(F("Sending another packet ... "));
 
-    // you can transmit C-string or Arduino string up to
-    // 256 characters long
-    transmissionState = lora.startTransmit("Hello SPD!");
-
-    // you can also transmit byte array up to 256 bytes long
-    /*
-      byte byteArr[] = {0x01, 0x23, 0x45, 0x56,
-                        0x78, 0xAB, 0xCD, 0xEF};
-      int state = lora.transmit(byteArr, 8);
-    */
-
+    // you can transmit byte array up to 256 bytes long
+    // Packet = {Local adress, Smoke measurement, Flame measurement, Gass measurement, Fire probability * 10000}
+    byte byteArr[] = {LOCAL_ADRESS, encoded_smoke.upper_byte, encoded_smoke.lower_byte, encoded_flame.upper_byte, encoded_flame.lower_byte, 
+                      encoded_gass.upper_byte, encoded_gass.lower_byte, encoded_prob.upper_byte, encoded_prob.lower_byte};
+    int transmissionState = lora.startTransmit(byteArr, MSG_LEN);
+    
     // we're ready to send more packets, enable interrupt service routine
     enableInterrupt = true;
   }
 }
-
 
 // this function is called when a complete packet is transmitted by the module
 // IMPORTANT: this function MUST be 'void' type and MUST NOT have any arguments!
@@ -164,14 +144,14 @@ void setFlag(void) {
   transmittedFlag = true;
 }
 
-byte LowerByte(int num){
+byte encodeLowerByte(int num){
   int mask = 255; // bin = '1111 1111'
   int lowerResult = mask & num;
   byte LowerByte = (byte)lowerResult;
   return LowerByte;
 }
 
-byte UpperByte(int num){
+byte encodeUpperByte(int num){
   int mask = 255; // bin = '1111 1111'
   int shifted_num = num >> 8;
   int lowerResult = mask & shifted_num;
@@ -179,12 +159,15 @@ byte UpperByte(int num){
   return LowerByte;
 }
 
-bool devide_num_into_bytes(int num, byte *lower_byte, byte *upper_byte) {
-  if (num <= 0 || num >= 65535) { // It is not possible to decode int in two bytes
+bool encodeNumber(int num, encodedInTwoBytes *encoded) {
+  if (num < 0 || num >= ERR_VALUE) { // It is not possible to decode int in two bytes
+    // Error value
+    encoded->lower_byte = 0xFF; 
+    encoded->upper_byte = 0xFF;
     return false;
   }
-  *lower_byte = LowerByte(num);
-  *upper_byte = UpperByte(num);
+  encoded->lower_byte = encodeLowerByte(num);
+  encoded->upper_byte = encodeUpperByte(num);
   return true;
 }
 
@@ -193,7 +176,7 @@ int decodeUpperByte(byte upper_byte){
   return shifted;
 } 
 
-int decode_num(byte lower_byte, byte upper_byte) {
-  int decoded_number = (int)lower_byte | decodeUpperByte(upper_byte);
+int decodeNumber(byte lower_byte, byte upper_byte) {
+  int decoded_number = (int)lower_byte | decodeUpperByte(upper_byte); // Bitovy OR
   return decoded_number;
 }
