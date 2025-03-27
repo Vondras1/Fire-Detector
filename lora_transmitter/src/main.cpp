@@ -34,6 +34,15 @@ SX1272 lora = new LoRa;
 // Functions declarations
 void setFlag(void);
 byte LowerByte(int num);
+byte UpperByte(int num);
+bool devide_num_into_bytes(int num, byte *lower_byte, byte *upper_byte);
+int decodeUpperByte(byte upper_byte);
+int decode_num(byte lower_byte, byte upper_byte);
+
+struct {
+  byte upper_byte;
+  byte lower_byte;
+} encoded_number;
 
 // save transmission state between loops
 int transmissionState = ERR_NONE;
@@ -46,10 +55,6 @@ volatile bool enableInterrupt = true;
 
 void setup() {
   Serial.begin(9600);
-
-  int num = 720;
-
-  Serial.println(LowerByte(num));
 
   // initialize SX1278 with default settings
   Serial.print(F("Initializing ... "));
@@ -92,6 +97,15 @@ void setup() {
 
 
 void loop() {
+
+  int num = 278;
+
+  delay(1000);
+
+  bool res = devide_num_into_bytes(num, &encoded_number.lower_byte, &encoded_number.upper_byte);
+
+  int decoded_number = decode_num(encoded_number.lower_byte, encoded_number.upper_byte);
+
   // check if the previous transmission finished
   if(transmittedFlag) {
     // disable the interrupt service routine while
@@ -132,17 +146,14 @@ void loop() {
       int state = lora.transmit(byteArr, 8);
     */
 
-    // we're ready to send more packets,
-    // enable interrupt service routine
+    // we're ready to send more packets, enable interrupt service routine
     enableInterrupt = true;
   }
 }
 
 
-// this function is called when a complete packet
-// is transmitted by the module
-// IMPORTANT: this function MUST be 'void' type
-//            and MUST NOT have any arguments!
+// this function is called when a complete packet is transmitted by the module
+// IMPORTANT: this function MUST be 'void' type and MUST NOT have any arguments!
 void setFlag(void) {
   // check if the interrupt is enabled
   if(!enableInterrupt) {
@@ -153,7 +164,6 @@ void setFlag(void) {
   transmittedFlag = true;
 }
 
-
 byte LowerByte(int num){
   int mask = 255; // bin = '1111 1111'
   int lowerResult = mask & num;
@@ -161,7 +171,29 @@ byte LowerByte(int num){
   return LowerByte;
 }
 
-// byte UpperByte(int num){
+byte UpperByte(int num){
+  int mask = 255; // bin = '1111 1111'
+  int shifted_num = num >> 8;
+  int lowerResult = mask & shifted_num;
+  byte LowerByte = (byte)lowerResult;
+  return LowerByte;
+}
 
-// }
+bool devide_num_into_bytes(int num, byte *lower_byte, byte *upper_byte) {
+  if (num <= 0 || num >= 65535) { // It is not possible to decode int in two bytes
+    return false;
+  }
+  *lower_byte = LowerByte(num);
+  *upper_byte = UpperByte(num);
+  return true;
+}
 
+int decodeUpperByte(byte upper_byte){
+  int shifted = (int)upper_byte << 8;
+  return shifted;
+} 
+
+int decode_num(byte lower_byte, byte upper_byte) {
+  int decoded_number = (int)lower_byte | decodeUpperByte(upper_byte);
+  return decoded_number;
+}
