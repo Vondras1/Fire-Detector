@@ -22,17 +22,29 @@
 //            or left floating.
 SX1272 lora = new LoRa;
 
-// Device adress
+// Device global constatnts
 #define LOCAL_ADRESS 0x11
 #define PROB_SCALE 10000
 #define MSG_LEN 9
 #define ERR_VALUE 65535
+#define TIME_SPAN 6000
+
+// Pins sensors
+#define FlameSensorPin A3
+#define SmokeSensorPin A1
+#define GasSensorPin A2
 
 // Structs
-struct encodedInTwoBytes{
+struct encodedInTwoBytes {
   byte upper_byte;
   byte lower_byte;
 };
+
+struct averageSensorVals {
+  int smoke;
+  int flame;
+  int gas; 
+} average_values;
 
 // Functions declarations
 void setFlag(void);
@@ -41,6 +53,11 @@ byte encodeUpperByte(int num);
 bool encodeNumber(int num, encodedInTwoBytes *encoded);
 int decodeUpperByte(byte upper_byte);
 int decodeNumber(byte lower_byte, byte upper_byte);
+void countMovingAverage(int x, float *avg, float a);
+void measureAverageValues(averageSensorVals *average);
+
+// Global variable
+long timeOfLastMeasurement = millis();
 
 // save transmission state between loops
 int transmissionState = ERR_NONE;
@@ -77,31 +94,36 @@ void setup() {
   // set the function that will be called when packet transmission is finished
   lora.setDio0Action(setFlag);
 
+  // set pins modes
+  pinMode(FlameSensorPin, INPUT_ANALOG);
+  pinMode(SmokeSensorPin, INPUT_ANALOG);
+  pinMode(GasSensorPin, INPUT_ANALOG);
+
   // setup finished
   Serial.print(F("Setup finished."));
 }
 
 void loop() {
-  int smoke = 273;
-  int flame = 514;
-  int gass = 4021;
-  float fire_prob = 0.053;
-  int scaled_probability = (int)(fire_prob*PROB_SCALE);
 
-  encodedInTwoBytes encoded_smoke;
-  encodedInTwoBytes encoded_flame;
-  encodedInTwoBytes encoded_gass;
-  encodedInTwoBytes encoded_prob;
+  if (transmittedFlag and (millis() - timeOfLastMeasurement) >= TIME_SPAN) {
+    // Measure current values and count average
+    measureAverageValues(&average_values);
 
-  bool res_smoke = encodeNumber(smoke, &encoded_smoke);
-  bool res_flame = encodeNumber(flame, &encoded_flame);
-  bool res_gass = encodeNumber(gass, &encoded_gass);
-  bool res_prob = encodeNumber(scaled_probability, &encoded_prob);
+    // Predict probability of flame
+    float fire_prob = 0.053;
+    int scaled_probability = (int)(fire_prob*PROB_SCALE);
 
-  // check if the previous transmission finished
-  if(transmittedFlag) {
-    // disable the interrupt service routine while
-    // processing the data
+    // Encode int into 2 bytes
+    encodedInTwoBytes encoded_smoke;
+    encodedInTwoBytes encoded_flame;
+    encodedInTwoBytes encoded_gas;
+    encodedInTwoBytes encoded_prob;
+    bool res_smoke = encodeNumber(average_values.smoke, &encoded_smoke);
+    bool res_flame = encodeNumber(average_values.flame, &encoded_flame);
+    bool res_gas = encodeNumber(average_values.gas, &encoded_gas);
+    bool res_prob = encodeNumber(scaled_probability, &encoded_prob);
+
+    // disable the interrupt service routine while processing the data
     enableInterrupt = false;
 
     // reset flag
@@ -115,16 +137,13 @@ void loop() {
       Serial.println(transmissionState);
     }
 
-    // wait 2 seconds before transmitting again
-    delay(2000);
-
     // send another one
     Serial.print(F("Sending another packet ... "));
 
     // you can transmit byte array up to 256 bytes long
-    // Packet = {Local adress, Smoke measurement, Flame measurement, Gass measurement, Fire probability * 10000}
+    // Packet = {Local adress, Smoke measurement, Flame measurement, Gas measurement, Fire probability * 10000}
     byte byteArr[] = {LOCAL_ADRESS, encoded_smoke.upper_byte, encoded_smoke.lower_byte, encoded_flame.upper_byte, encoded_flame.lower_byte, 
-                      encoded_gass.upper_byte, encoded_gass.lower_byte, encoded_prob.upper_byte, encoded_prob.lower_byte};
+                      encoded_gas.upper_byte, encoded_gas.lower_byte, encoded_prob.upper_byte, encoded_prob.lower_byte};
     int transmissionState = lora.startTransmit(byteArr, MSG_LEN);
     
     // we're ready to send more packets, enable interrupt service routine
@@ -180,3 +199,33 @@ int decodeNumber(byte lower_byte, byte upper_byte) {
   int decoded_number = (int)lower_byte | decodeUpperByte(upper_byte); // Bitovy OR
   return decoded_number;
 }
+
+void countMovingAverage(int x, float *avg, float a=0.8) {
+  *avg = a*x + (1-a)*(*avg);
+}
+
+void measureAverageValues(averageSensorVals *average) {
+  float avg_smoke = 0;
+  float avg_flame = 0;
+  float avg_gas = 0;
+
+  int i = 0;
+  int num_iter = 10;
+  while (i < num_iter) {
+    avg_smoke += analogRead(SmokeSensorPin);
+    avg_flame += analogRead(FlameSensorPin);
+    avg_gas += analogRead(GasSensorPin);
+    i += 1;
+    delay(10);
+  }
+  
+  average->smoke = (int)(avg_smoke/num_iter);
+  average->flame = (int)(avg_flame/num_iter);
+  average->gas = (int)(avg_gas/num_iter);
+
+  Serial.println();
+
+  timeOfLastMeasurement = millis();
+}
+
+
