@@ -52,11 +52,27 @@ volatile bool receivedFlag = false;
 // disable interrupt when it's not needed
 volatile bool enableInterrupt = true;
 
+//structs
+struct receivedMsg{
+  byte transm_id;
+  int flame;
+  int gas;
+  int smoke;
+  int scaled_probability; 
+  int prob;
+};
+
+// creating instance of receivedMsg struct, global
+receivedMsg msg;
+
+
 // Functions declarations
 int decodeUpperByte(byte upper_byte);
 int decodeNum(byte lower_byte, byte upper_byte);
-bool readMsg(byte arr[MSG_LEN], byte *transm_id, int *flame, int *gas, int *smoke, int *prob);
-void printMsg(byte transm_id, int flame, int gas, int smoke, int prob);
+//bool readMsg(byte arr[MSG_LEN], byte *transm_id, int *flame, int *gas, int *smoke, int *prob);
+bool readMsg(byte arr[MSG_LEN], receivedMsg *msg);
+//void printMsg(byte transm_id, int flame, int gas, int smoke, int prob);
+void printMsg(receivedMsg msg);
 
 void setFlag(void) {
   // check if the interrupt is enabled
@@ -128,13 +144,6 @@ void setup() {
 
 
 void loop() {
-  //variables for received sensor readings, ID, etc.
-  byte transm_id;
-  int flame;
-  int gas;
-  int smoke;
-  int scaled_probability;
-
   // check if the flag is set
 
   //Serial.print(F("received flag: "));
@@ -167,9 +176,11 @@ void loop() {
       }
       Serial.print("\n");
       
-      bool success = readMsg(byteArr, &transm_id, &flame, &gas, &smoke, &scaled_probability);
+      // decode the incoming message form byte array to receivedMsg struct
+      bool success = readMsg(byteArr, &msg);
 
-      printMsg(transm_id, flame, gas, smoke, scaled_probability);
+      // print message data to Serial monitor
+      printMsg(msg);
 
       Serial.print("received values valid: ");
       Serial.println(success);
@@ -199,28 +210,28 @@ int decodeNum(byte lower_byte, byte upper_byte) {
   return decoded_number;
 }
 
-bool readMsg(byte arr[MSG_LEN], byte *transm_id, int *flame, int *gas, int *smoke, int *prob){
-  *transm_id = arr[0];
-  *flame = decodeNum(arr[2], arr[1]);
-  *gas = decodeNum(arr[4], arr[3]);
-  *smoke = decodeNum(arr[6], arr[5]);
-  *prob = decodeNum(arr[8], arr[7]);
-  if(*flame >= ERR_VAL || *gas >= ERR_VAL||*smoke >= ERR_VAL||*prob >= ERR_VAL){
+bool readMsg(byte arr[MSG_LEN], receivedMsg *msg){
+  msg->transm_id = arr[0];
+  msg->smoke = decodeNum(arr[2], arr[1]);
+  msg->flame = decodeNum(arr[4], arr[3]);
+  msg->gas = decodeNum(arr[6], arr[5]);
+  msg->prob = decodeNum(arr[8], arr[7]);
+  if(msg->flame >= ERR_VAL || msg->gas >= ERR_VAL||msg->smoke >= ERR_VAL||msg->prob >= ERR_VAL){
     return false;
   }
   return true; 
 }
 
-void printMsg(byte transm_id, int flame, int gas, int smoke, int prob){
+void printMsg(receivedMsg msg){
   Serial.print(F("transmitter ID: "));
-  Serial.print(transm_id);
-  Serial.print(F(", flame: "));
-  Serial.print(flame);
-  Serial.print(F(", gas: "));
-  Serial.print(gas);
+  Serial.print(msg.transm_id);
   Serial.print(F(", smoke: "));
-  Serial.print(smoke);
+  Serial.print(msg.smoke);
+  Serial.print(F(", flame: "));
+  Serial.print(msg.flame);
+  Serial.print(F(", gas: "));
+  Serial.print(msg.gas);
   Serial.print(F(", prob: "));
-  Serial.print(prob);
+  Serial.print(msg.prob);
   Serial.println();
 }
