@@ -25,14 +25,17 @@ SX1272 lora = new LoRa;
 // Device global constatnts
 #define LOCAL_ADRESS 0x11
 #define PROB_SCALE 10000
-#define MSG_LEN 9
+#define VOLTAGE_SCALE 10000
+#define MSG_LEN 11
 #define ERR_VALUE 65535
 #define TIME_SPAN 6000
+#define DIVIDER_RATIO 0.0054149 // 1M/1.47M resistor divider, 3.3V FS, 10 bit ADC
 
 // Pins sensors
 #define FlameSensorPin A3
 #define SmokeSensorPin A1
 #define GasSensorPin A2
+#define BatteryPin A5
 
 // Structs
 struct encodedInTwoBytes {
@@ -55,6 +58,7 @@ int decodeUpperByte(byte upper_byte);
 int decodeNumber(byte lower_byte, byte upper_byte);
 void countMovingAverage(int x, float *avg, float a);
 void measureAverageValues(averageSensorVals *average);
+void measureBattery(float *vbat);
 
 // Global variable
 long timeOfLastMeasurement = millis();
@@ -98,6 +102,7 @@ void setup() {
   pinMode(FlameSensorPin, INPUT_ANALOG);
   pinMode(SmokeSensorPin, INPUT_ANALOG);
   pinMode(GasSensorPin, INPUT_ANALOG);
+  pinMode(BatteryPin, INPUT_ANALOG);
 
   // setup finished
   Serial.print(F("Setup finished."));
@@ -108,6 +113,11 @@ void loop() {
   if (transmittedFlag and (millis() - timeOfLastMeasurement) >= TIME_SPAN) {
     // Measure current values and count average
     measureAverageValues(&average_values);
+    float v_bat;
+    measureBattery(&v_bat); // #TODO: maybe we dont need to measure battery voltage every 6 seconds
+    //Serial.print("Battery voltage: ");
+    //Serial.println(vbat);
+    int scaled_vbat = (int)(v_bat*VOLTAGE_SCALE);
 
     // Predict probability of flame
     float fire_prob = 0.053;
@@ -118,10 +128,12 @@ void loop() {
     encodedInTwoBytes encoded_flame;
     encodedInTwoBytes encoded_gas;
     encodedInTwoBytes encoded_prob;
+    encodedInTwoBytes encoded_vbat;
     bool res_smoke = encodeNumber(average_values.smoke, &encoded_smoke);
     bool res_flame = encodeNumber(average_values.flame, &encoded_flame);
     bool res_gas = encodeNumber(average_values.gas, &encoded_gas);
     bool res_prob = encodeNumber(scaled_probability, &encoded_prob);
+    bool res_vbat = encodeNumber(scaled_vbat, &encoded_vbat);
 
     // disable the interrupt service routine while processing the data
     enableInterrupt = false;
@@ -141,9 +153,10 @@ void loop() {
     Serial.print(F("Sending another packet ... "));
 
     // you can transmit byte array up to 256 bytes long
-    // Packet = {Local adress, Smoke measurement, Flame measurement, Gas measurement, Fire probability * 10000}
+    // Packet = {Local adress, Smoke measurement, Flame measurement, Gas measurement, Fire probability * 10000, battery voltage*10000}
     byte byteArr[] = {LOCAL_ADRESS, encoded_smoke.upper_byte, encoded_smoke.lower_byte, encoded_flame.upper_byte, encoded_flame.lower_byte, 
-                      encoded_gas.upper_byte, encoded_gas.lower_byte, encoded_prob.upper_byte, encoded_prob.lower_byte};
+                      encoded_gas.upper_byte, encoded_gas.lower_byte, encoded_prob.upper_byte, encoded_prob.lower_byte, encoded_vbat.upper_byte,
+                    encoded_vbat.lower_byte};
     int transmissionState = lora.startTransmit(byteArr, MSG_LEN);
     
     // we're ready to send more packets, enable interrupt service routine
@@ -228,4 +241,15 @@ void measureAverageValues(averageSensorVals *average) {
   timeOfLastMeasurement = millis();
 }
 
+void measureBattery(float *vbat){
+  const int num_iter = 4;
+  int sum_vbat = 0;
+  for (int i = 0; i < num_iter; i++){
+    sum_vbat += analogRead(BatteryPin);
+    delay(5);
+  }
+  *vbat = ((float)sum_vbat/(float)num_iter);
+  *vbat = *vbat*DIVIDER_RATIO;
+  //Serial.println(*vbat);
+}
 
