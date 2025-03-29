@@ -1,1 +1,0 @@
-xxd -i model.tflite > model_data.cc
