@@ -26,7 +26,8 @@
 
 #define NODE_LOCAL_ADRESS 0x11
 #define PROB_SCALE 10000
-#define MSG_LEN 9
+#define VOLTAGE_SCALE 10000
+#define MSG_LEN 11
 #define ERR_VAL 65535 // max value of received integer, is treated as error value
 
 // create instance of LoRa class using SX1278 module
@@ -60,6 +61,7 @@ struct receivedMsg{
   int smoke;
   int scaled_probability; 
   int prob;
+  int vbat;
 };
 
 // creating instance of receivedMsg struct, global
@@ -216,6 +218,7 @@ bool readMsg(byte arr[MSG_LEN], receivedMsg *msg){
   msg->flame = decodeNum(arr[4], arr[3]);
   msg->gas = decodeNum(arr[6], arr[5]);
   msg->prob = decodeNum(arr[8], arr[7]);
+  msg->vbat = decodeNum(arr[10], arr[9]);
   if(msg->flame >= ERR_VAL || msg->gas >= ERR_VAL||msg->smoke >= ERR_VAL||msg->prob >= ERR_VAL){
     return false;
   }
@@ -233,5 +236,7 @@ void printMsg(receivedMsg msg){
   Serial.print(msg.gas);
   Serial.print(F(", prob: "));
   Serial.print(msg.prob);
+  Serial.print(F(", vbat: "));
+  Serial.print(msg.vbat);
   Serial.println();
 }
