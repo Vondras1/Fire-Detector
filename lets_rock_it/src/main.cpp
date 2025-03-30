@@ -5,6 +5,7 @@ int countAverage(int, float a, bool first);
 void measureBattery(int *vbat);
 bool first = true;
 
+
 #define FlameSensorPin A3
 #define BatteryPin A4
 #define DIVIDER_RATIO 0.0054149 // 1M/1.47M resistor divider, 3.3V FS, 10 bit ADC
@@ -13,6 +14,7 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   pinMode(LED_BUILTIN, OUTPUT);
+
   pinMode(A0, INPUT_ANALOG);
   pinMode(BatteryPin, INPUT_ANALOG);
 }
@@ -23,12 +25,6 @@ void loop() {
   // delay(500);
   // digitalWrite(LED_BUILTIN, LOW);
   // delay(500);
-
-  //int measuredValue = analogRead(FlameSensorPin);
-  //int avg = countAverage(measuredValue, 0.8, first);
-  //Serial.println(avg);
-
-  //first = false;
 
   int v_bat;
   measureBattery(&v_bat);
