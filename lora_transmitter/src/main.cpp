@@ -158,7 +158,7 @@ void setFlag(void) {
   if(!enableInterrupt) {
     return;
   }
-
+  lora.sleep();
   // we sent a packet, set the flag
   transmittedFlag = true;
 }
@@ -222,8 +222,6 @@ void measureAverageValues(averageSensorVals *average) {
   average->smoke = (int)(avg_smoke/num_iter);
   average->flame = (int)(avg_flame/num_iter);
   average->gas = (int)(avg_gas/num_iter);
-
-  Serial.println();
 
   timeOfLastMeasurement = millis();
 }

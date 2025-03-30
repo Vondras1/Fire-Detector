@@ -4,13 +4,18 @@
 int countAverage(int, float a, bool first);
 bool first = true;
 
-#define FlameSensorPin A3
+#define FlameSensorPin A0
+#define SmokeSensorPin A1
+#define GassSensorPin A2
+
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(A0, INPUT_ANALOG);
+  pinMode(FlameSensorPin, INPUT_ANALOG);
+  pinMode(SmokeSensorPin, INPUT_ANALOG);
+  pinMode(GassSensorPin, INPUT_ANALOG);
 }
 
 void loop() {
@@ -20,9 +25,20 @@ void loop() {
   // digitalWrite(LED_BUILTIN, LOW);
   // delay(500);
 
-  int measuredValue = analogRead(FlameSensorPin);
-  int avg = countAverage(measuredValue, 0.8, first);
-  Serial.println(avg);
+  int measuredSmoke = analogRead(SmokeSensorPin);
+  int avg_smoke = countAverage(measuredSmoke, 0.8, first);
+  Serial.print("Smoke sensor = ");
+  Serial.println(avg_smoke);
+
+  // int measuredGass = analogRead(GassSensorPin);
+  // int avg_gass = countAverage(measuredGass, 0.8, first);
+  // Serial.print("Gass sensor = ");
+  // Serial.println(avg_gass);
+
+  // int measuredFlame = analogRead(FlameSensorPin);
+  // int avg_flame = countAverage(measuredFlame, 0.8, first);
+  // Serial.print("Flame sensor = ");
+  // Serial.println(avg_flame);
 
   first = false;
   delay(100);
