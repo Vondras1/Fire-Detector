@@ -1,18 +1,4 @@
 /*
-   LoRaLib Receive with Interrupts Example
-
-   This example listens for LoRa transmissions and tries to
-   receive them. Once a packet is received, an interrupt is
-   triggered. To successfully receive data, the following
-   settings have to be the same on both transmitter
-   and receiver:
-    - carrier frequency
-    - bandwidth
-    - spreading factor
-    - coding rate
-    - sync word
-    - preamble length
-
    For more detailed information, see the LoRaLib Wiki
    https://github.com/jgromes/LoRaLib/wiki
 
@@ -23,6 +9,8 @@
 // include the library
 #include "Arduino.h"
 #include <LoRaLib.h>
+#include <String.h>
+#include <SoftwareSerial.h>
 
 #define NODE_LOCAL_ADRESS 0x11
 #define PROB_SCALE 10000
@@ -42,11 +30,6 @@
 //            or left floating.
 SX1272 lora = new LoRa;
 
-// this function is called when a complete packet
-// is received by the module
-// IMPORTANT: this function MUST be 'void' type
-//            and MUST NOT have any arguments!
-
 // flag to indicate that a packet was received
 volatile bool receivedFlag = false;
 
@@ -59,7 +42,6 @@ struct receivedMsg{
   int flame;
   int gas;
   int smoke;
-  int scaled_probability; 
   int prob;
   int vbat;
 };
@@ -67,14 +49,20 @@ struct receivedMsg{
 // creating instance of receivedMsg struct, global
 receivedMsg msg;
 
-
 // Functions declarations
 int decodeUpperByte(byte upper_byte);
 int decodeNum(byte lower_byte, byte upper_byte);
-//bool readMsg(byte arr[MSG_LEN], byte *transm_id, int *flame, int *gas, int *smoke, int *prob);
 bool readMsg(byte arr[MSG_LEN], receivedMsg *msg);
-//void printMsg(byte transm_id, int flame, int gas, int smoke, int prob);
 void printMsg(receivedMsg msg);
+// GSM
+bool WaitForResponse();
+bool SendCommand(String command);
+bool SendCommandCustomResp(String command, String resp);
+bool WaitForCustomResponse(String resp);
+
+SoftwareSerial gprsSerial(2, 3); // RX, TX
+
+bool newData = false;
 
 void setFlag(void) {
   // check if the interrupt is enabled
@@ -90,6 +78,7 @@ void setFlag(void) {
 
 void setup() {
   Serial.begin(9600);
+  gprsSerial.begin(9600); // the GPRS baud rate
 
   // initialize SX1278 with default settings
   Serial.print(F("Initializing ... "));
@@ -146,31 +135,23 @@ void setup() {
 
 
 void loop() {
-  // check if the flag is set
-
-  //Serial.print(F("received flag: "));
-  //Serial.println(receivedFlag);
   if(receivedFlag) {
-    // disable the interrupt service routine while
-    // processing the data
+    // disable the interrupt service routine while processing the data
     enableInterrupt = false;
 
     // reset flag
     receivedFlag = false;
+    newData = true;
     
     // buffer - byte array for received data
     byte byteArr[MSG_LEN];
     int state = lora.readData(byteArr, MSG_LEN);
     
-
     if (state == ERR_NONE) {
       // packet was successfully received
       Serial.println(F("Received packet!"));
 
       // print data of the packet
-      //Serial.print(F("Data:\t\t\t"));
-      //Serial.println(str);
-
       Serial.println("Bytearray: ");
       for(auto i: byteArr){
         Serial.print(i);
@@ -191,7 +172,6 @@ void loop() {
     } else if (state == ERR_CRC_MISMATCH) {
       // packet was received, but is malformed
       Serial.println(F("CRC error!"));
-
     }
 
     // we're ready to receive more packets,
@@ -200,6 +180,56 @@ void loop() {
     state = lora.startReceive();
   }
 
+  if (newData){
+    newData = false;
+
+    // GSM
+    float h = msg.flame; //dht.readHumidity();
+    float t = msg.prob; //dht.readTemperature();
+
+    Serial.print("Flame sensor = ");
+    Serial.print(msg.flame);
+    Serial.println(" °C");
+    Serial.print("Probability = ");
+    Serial.print(msg.prob);
+    Serial.println(" %");
+
+    if (gprsSerial.available())
+      Serial.write(gprsSerial.read());
+
+    SendCommand("AT");
+
+    // SendCommand("AT+CPIN?"); // SIM pin
+    // SendCommand("AT+CREG?"); 
+    // SendCommand("AT+CSQ"); // signal quality
+    
+    SendCommand("AT+CGATT?");
+    
+    // start gprs connection
+    SendCommand("AT+QICSGP=1,\"internet.t-mobile.cz\",\"gprs\",\"gprs\""); 
+    
+    // set next QIOPEN command to access through domain name (not IP)
+    SendCommand("AT+QIDNSIP=1");                                           
+    
+    // connect to server
+    SendCommand("AT+QIOPEN=\"TCP\",\"api.thingspeak.com\",\"80\"");        
+    
+    // wait for response with connection info
+    WaitForCustomResponse("CONNECT");                                      
+    
+    // begin http GET request to remote server
+    SendCommandCustomResp("AT+QISEND", ">");    
+
+    String str = "GET https://api.thingspeak.com/update?api_key=S8QL4UGSKU4E3NUH&field1=" + String(t) + "&field2=" + String(h);
+    gprsSerial.println(str);
+    gprsSerial.println((char)26); // end of message
+    WaitForCustomResponse("SEND");
+    WaitForCustomResponse("CLOSED"); // wait until http connection close
+    SendCommandCustomResp("AT+QIDEACT", "DEACT"); // deactivate gprs context
+    // delay(10000);
+  }
+
+  delay(50);
 }
 
 int decodeUpperByte(byte upper_byte){
@@ -239,4 +269,75 @@ void printMsg(receivedMsg msg){
   Serial.print(F(", vbat: "));
   Serial.print(msg.vbat);
   Serial.println();
+}
+
+bool WaitForResponse()
+{
+  unsigned long startTime = millis();
+  while (millis() - startTime < 5000)
+  {
+    String reply = gprsSerial.readStringUntil('\n');
+    if (reply.length() > 0)
+    {
+      Serial.print("Received: \"");
+      Serial.print(reply);
+      Serial.println("\"");
+
+      if (reply.startsWith("OK"))
+        return true;
+
+      if (reply.startsWith("ERROR"))
+        return false;
+    }
+  }
+  Serial.println("Did not receive OK.");
+  return false;
+}
+
+bool SendCommand(String command)
+{
+  Serial.print("Sending command: \"");
+  Serial.print(command);
+  Serial.println("\"");
+
+  gprsSerial.print(command);
+  gprsSerial.print("\r\n");
+
+  return WaitForResponse();
+}
+
+bool SendCommandCustomResp(String command, String resp)
+{
+  Serial.print("Sending command: \"");
+  Serial.print(command);
+  Serial.println("\"");
+
+  gprsSerial.print(command);
+  gprsSerial.print("\r\n");
+
+  return WaitForCustomResponse(resp);
+}
+
+bool WaitForCustomResponse(String resp)
+{
+  unsigned long startTime = millis();
+  while (millis() - startTime < 5000) // TIMEOUT 5 SECONDS!
+  {
+    String reply = gprsSerial.readStringUntil('\n');
+    if (reply.length() > 0)
+    {
+      Serial.print("Received: \"");
+      Serial.print(reply);
+      Serial.println("\"");
+
+      if (reply.startsWith(resp))
+        return true;
+
+      if (reply.startsWith("ERROR"))
+        return false;
+    }
+  }
+  Serial.print("Did not receive ");
+  Serial.println(resp);
+  return false;
 }
