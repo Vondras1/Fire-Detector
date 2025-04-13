@@ -29,8 +29,8 @@ void setup()
 
 void loop()
 {
-  float h = 50; // random(0,100); //dht.readHumidity();
-  float t = 20; // random(-20,50); //dht.readTemperature();
+  float h = random(0,100); //dht.readHumidity();
+  float t = random(-20,50); //dht.readTemperature();
 
   Serial.print("Temperature = ");
   Serial.print(t);

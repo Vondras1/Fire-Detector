@@ -9,6 +9,13 @@
 // include the library
 #include "Arduino.h"
 #include <LoRaLib.h>
+#include <SPI.h>
+#include "SD.h"
+
+// Set mode. In SD card mode are data transmitted and saved to SD card, 
+// in normal mode are transmitted only. Comment out following # define 
+// for non-SD mode.
+#define SDCARD_MODE
 
 // create instance of LoRa class using SX1278 module
 // this pinout corresponds to RadioShield
@@ -36,6 +43,9 @@ SX1272 lora = new LoRa;
 #define SmokeSensorPin A1
 #define GasSensorPin A2
 #define BatteryPin A5
+// other pins
+#define SD_CSPIN 9
+#define FireSwitch 8
 
 // Structs
 struct encodedInTwoBytes {
@@ -60,6 +70,19 @@ void countMovingAverage(int x, float *avg, float a);
 void measureAverageValues(averageSensorVals *average);
 void measureBattery(float *vbat);
 
+#ifdef SDCARD_MODE
+
+// SD card related function declaration
+int getNumFiles(File dir);
+bool writeData(File mf, averageSensorVals *average, int is_fire);
+bool writeHeader(File mf, String header);
+
+// file object for SD card data and string for file name
+File myFile;
+String full_filename;
+
+#endif
+
 // Global variable
 long timeOfLastMeasurement = millis();
 
@@ -74,6 +97,39 @@ volatile bool enableInterrupt = true;
 
 void setup() {
   Serial.begin(9600);
+
+  #ifdef SDCARD_MODE
+  String filename = "tabor"; // default file name for saving data on SD, can be changed
+
+  Serial.print("Initializing SD card...");
+  if (!SD.begin(SD_CSPIN)) {
+    Serial.println("initialization failed!");
+    while (1);
+  }
+  Serial.println("initialization done.");
+  
+  File root = SD.open("/");
+
+  int num_files = getNumFiles(root);
+
+  full_filename = filename + String(num_files) + String(".txt") ;
+
+  myFile = SD.open(full_filename, FILE_WRITE);
+
+  // if the file opened okay, write header to it:
+  if (myFile) {
+    // write header to file
+    writeHeader(myFile, "smoke,flame,gas,label");
+    // close the file:
+    myFile.close();
+
+  } else {
+    // if the file didn't open, print an error:
+    Serial.println("error opening file");
+  }
+  myFile.close();
+
+  #endif // end of SD card mode
 
   // initialize SX1278 with default settings
   Serial.print(F("Initializing ... "));
@@ -104,8 +160,10 @@ void setup() {
   pinMode(GasSensorPin, INPUT_ANALOG);
   pinMode(BatteryPin, INPUT_ANALOG);
 
+  pinMode(FireSwitch, INPUT_PULLUP);
+
   // setup finished
-  Serial.print(F("Setup finished."));
+  Serial.println(F("Setup finished."));
 }
 
 void loop() {
@@ -113,6 +171,26 @@ void loop() {
   if (transmittedFlag and (millis() - timeOfLastMeasurement) >= TIME_SPAN) {
     // Measure current values and count average
     measureAverageValues(&average_values);
+
+    #ifdef SDCARD_MODE // save to sd card only if control variable SDCARD_MODE defined 
+        
+      myFile = SD.open(full_filename, FILE_WRITE);
+
+      // if the file opened okay, write to it:
+      if (myFile) {
+      
+        int is_fire = digitalRead(FireSwitch);
+        writeData(myFile, &average_values, is_fire); // write data to SD card
+        myFile.close(); // close the file
+
+      } else {
+        // if the file didn't open, print an error:
+        Serial.println("error opening file");
+      }
+      myFile.close();
+
+      #endif // end of SD card mode
+
     float v_bat;
     measureBattery(&v_bat); // #TODO: maybe we dont need to measure battery voltage every 6 seconds
     //Serial.print("Battery voltage: ");
@@ -251,3 +329,38 @@ void measureBattery(float *vbat){
   //Serial.println(*vbat);
 }
 
+// SD card related functions: ---------------------
+#ifdef SDCARD_MODE
+
+int getNumFiles(File dir) {
+  int cntr = 0;
+  while (true) {
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      break;
+    }
+    cntr++;
+    entry.close();
+  }
+  return cntr;
+
+}
+
+bool writeData(File mf, averageSensorVals *average, int is_fire){
+  mf.print(average->smoke);
+  mf.print(',');
+  mf.print(average->flame);
+  mf.print(',');
+  mf.print(average->gas);
+  mf.print(',');
+  mf.print(is_fire);
+  mf.print('\n');
+  return true;
+}
+
+bool writeHeader(File mf, String header){
+  mf.println(header);
+  return true;
+}
+
+#endif
