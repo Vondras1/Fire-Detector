@@ -36,6 +36,8 @@ SX1272 lora = new LoRa;
 #define MSG_LEN 11
 #define ERR_VALUE 65535
 #define TIME_SPAN 6000
+// set to proper value!!! (0.013526 for 4M7/1M7 divider, 3.3V FS, 10 bit ADC)
+// for 12,6 V FS and voltage scale 10000 will overflow the 2B value!!!
 #define DIVIDER_RATIO 0.0054149 // 1M/1.47M resistor divider, 3.3V FS, 10 bit ADC
 
 // Pins sensors
@@ -187,8 +189,7 @@ void loop() {
         // if the file didn't open, print an error:
         Serial.println("error opening file");
       }
-      myFile.close();
-
+      //myFile.close();
       #endif // end of SD card mode
 
     float v_bat;
