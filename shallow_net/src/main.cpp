@@ -32,7 +32,7 @@ void loop() {
     float input[NUMBER_OF_INPUTS] = { x1, x2, x3 };
 
     // Predict output
-    float predicted = ml.predict(input);
+    float predicted = ml.predict(input); // pst: (x1*0.2 + x2*0.5 + x3*0.3) > 0.7
 
     // Print input and predicted value
 
