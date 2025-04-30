@@ -18,6 +18,10 @@
 #define MSG_LEN 11
 #define ERR_VAL 65535 // max value of received integer, is treated as error value
 
+// pin define
+# define GSM_POWERKEY_PIN 8
+# define GSM_STATUS_PIN 9
+
 // create instance of LoRa class using SX1278 module
 // this pinout corresponds to RadioShield
 // https://github.com/jgromes/RadioShield
@@ -55,12 +59,14 @@ int decodeNum(byte lower_byte, byte upper_byte);
 bool readMsg(byte arr[MSG_LEN], receivedMsg *msg);
 void printMsg(receivedMsg msg);
 // GSM
+void gsm_module_init();
 bool WaitForResponse();
 bool SendCommand(String command);
 bool SendCommandCustomResp(String command, String resp);
 bool WaitForCustomResponse(String resp);
 
-SoftwareSerial gprsSerial(2, 3); // RX, TX
+//SoftwareSerial gprsSerial(2, 3); // RX, TX
+SoftwareSerial gprsSerial(6, 7); // RX, TX
 
 bool newData = false;
 
@@ -117,6 +123,9 @@ void setup() {
     Serial.println(state);
     while (true);
   }
+  pinMode(GSM_STATUS_PIN, INPUT);
+  pinMode(GSM_POWERKEY_PIN, OUTPUT);
+  gsm_module_init();
 
   // NOTE: 'listen' mode will be disabled
   // automatically by calling any of the
@@ -184,14 +193,14 @@ void loop() {
     newData = false;
 
     // GSM
-    float h = msg.flame; //dht.readHumidity();
-    float t = msg.prob; //dht.readTemperature();
+    float v_bat = float(msg.vbat)/VOLTAGE_SCALE;
+    float prob = float(msg.prob)/PROB_SCALE;
 
     Serial.print("Flame sensor = ");
     Serial.print(msg.flame);
     Serial.println(" °C");
     Serial.print("Probability = ");
-    Serial.print(msg.prob);
+    Serial.print(prob);
     Serial.println(" %");
 
     if (gprsSerial.available())
@@ -220,7 +229,7 @@ void loop() {
     // begin http GET request to remote server
     SendCommandCustomResp("AT+QISEND", ">");    
 
-    String str = "GET https://api.thingspeak.com/update?api_key=S8QL4UGSKU4E3NUH&field1=" + String(t) + "&field2=" + String(h);
+    String str = "GET https://api.thingspeak.com/update?api_key=S8QL4UGSKU4E3NUH&field1=" + String(msg.flame) + "&field2=" + String(msg.smoke) + "&field3=" + String(msg.gas) + "&field4=" + String(prob) + "&field5=" + String(v_bat);
     gprsSerial.println(str);
     gprsSerial.println((char)26); // end of message
     WaitForCustomResponse("SEND");
@@ -270,6 +279,17 @@ void printMsg(receivedMsg msg){
   Serial.print(msg.vbat);
   Serial.println();
 }
+
+void gsm_module_init(){
+  
+  
+  if(!digitalRead(GSM_STATUS_PIN)){
+    digitalWrite(GSM_POWERKEY_PIN, HIGH);
+    delay(2000);
+    digitalWrite(GSM_POWERKEY_PIN, LOW);
+  }
+}
+
 
 bool WaitForResponse()
 {
