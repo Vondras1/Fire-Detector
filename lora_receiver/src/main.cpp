@@ -14,7 +14,7 @@
 
 #define NODE_LOCAL_ADRESS 0x11
 #define PROB_SCALE 10000
-#define VOLTAGE_SCALE 10000
+#define VOLTAGE_SCALE 1000
 #define MSG_LEN 11
 #define ERR_VAL 65535 // max value of received integer, is treated as error value
 
