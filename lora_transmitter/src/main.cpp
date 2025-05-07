@@ -32,13 +32,13 @@ SX1272 lora = new LoRa;
 // Device global constatnts
 #define LOCAL_ADRESS 0x11
 #define PROB_SCALE 10000
-#define VOLTAGE_SCALE 10000
+#define VOLTAGE_SCALE 1000
 #define MSG_LEN 11
 #define ERR_VALUE 65535
 #define TIME_SPAN 6000
 // set to proper value!!! (0.013526 for 4M7/1M7 divider, 3.3V FS, 10 bit ADC)
 // for 12,6 V FS and voltage scale 10000 will overflow the 2B value!!!
-#define DIVIDER_RATIO 0.0054149 // 1M/1.47M resistor divider, 3.3V FS, 10 bit ADC
+#define DIVIDER_RATIO 0.01679785627705628 // 4.7M/1.47M resistor divider, 3.3V FS, 10 bit ADC
 
 // Pins sensors
 #define FlameSensorPin A3
@@ -181,9 +181,11 @@ void loop() {
       // if the file opened okay, write to it:
       if (myFile) {
       
-        int is_fire = digitalRead(FireSwitch);
+        int is_fire = !digitalRead(FireSwitch);
         writeData(myFile, &average_values, is_fire); // write data to SD card
         myFile.close(); // close the file
+        Serial.println("Golden label, switch is:");
+        Serial.println(is_fire);
 
       } else {
         // if the file didn't open, print an error:
@@ -195,7 +197,8 @@ void loop() {
     float v_bat;
     measureBattery(&v_bat); // #TODO: maybe we dont need to measure battery voltage every 6 seconds
     //Serial.print("Battery voltage: ");
-    //Serial.println(vbat);
+    Serial.println(v_bat);
+
     int scaled_vbat = (int)(v_bat*VOLTAGE_SCALE);
 
     // Predict probability of flame

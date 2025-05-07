@@ -65,7 +65,6 @@ bool SendCommand(String command);
 bool SendCommandCustomResp(String command, String resp);
 bool WaitForCustomResponse(String resp);
 
-//SoftwareSerial gprsSerial(2, 3); // RX, TX
 SoftwareSerial gprsSerial(6, 7); // RX, TX
 
 bool newData = false;
