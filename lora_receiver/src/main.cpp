@@ -124,7 +124,7 @@ void setup() {
   }
   pinMode(GSM_STATUS_PIN, INPUT);
   pinMode(GSM_POWERKEY_PIN, OUTPUT);
-  gsm_module_init();
+  // gsm_module_init();
 
   // NOTE: 'listen' mode will be disabled
   // automatically by calling any of the
@@ -189,6 +189,8 @@ void loop() {
   }
 
   if (newData){
+    gsm_module_init();
+    
     newData = false;
 
     // GSM
@@ -280,8 +282,6 @@ void printMsg(receivedMsg msg){
 }
 
 void gsm_module_init(){
-  
-  
   if(!digitalRead(GSM_STATUS_PIN)){
     digitalWrite(GSM_POWERKEY_PIN, HIGH);
     delay(2000);
