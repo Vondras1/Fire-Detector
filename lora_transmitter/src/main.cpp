@@ -1,16 +1,12 @@
-/*
-   For more detailed information, see the LoRaLib Wiki
-   https://github.com/jgromes/LoRaLib/wiki
-
-   For full API reference, see the GitHub Pages
-   https://jgromes.github.io/LoRaLib/
-*/
+/*  */
 
 // include the library
 #include "Arduino.h"
 #include <LoRaLib.h>
 #include <SPI.h>
 #include "SD.h"
+#include "model_real_data.h"
+#include <EloquentTinyML.h>
 
 // Set mode. In SD card mode are data transmitted and saved to SD card, 
 // in normal mode are transmitted only. Comment out following # define 
@@ -28,6 +24,19 @@
 //            DIO1 MAY be connected to any free pin
 //            or left floating.
 SX1272 lora = new LoRa;
+
+// FIRE NET
+// Define the number of inputs and outputs for the model
+#define NUMBER_OF_NET_INPUTS  3
+#define NUMBER_OF_NET_OUTPUTS 1
+
+// Define the size of the tensor arena (used for memory allocation during inference)
+// For small models, 2–4 KB is usually enough
+#define TENSOR_ARENA_SIZE (2 * 1024)
+
+// Create an instance of the TfLite interpreter for the given model
+Eloquent::TinyML::TfLite<NUMBER_OF_NET_INPUTS, NUMBER_OF_NET_OUTPUTS, TENSOR_ARENA_SIZE> ml;
+
 
 // Device global constatnts
 #define LOCAL_ADRESS 0x11
@@ -71,12 +80,13 @@ int decodeNumber(byte lower_byte, byte upper_byte);
 void countMovingAverage(int x, float *avg, float a);
 void measureAverageValues(averageSensorVals *average);
 void measureBattery(float *vbat);
+float getFireProbability();
 
 #ifdef SDCARD_MODE
 
 // SD card related function declaration
 int getNumFiles(File dir);
-bool writeData(File mf, averageSensorVals *average, int is_fire);
+bool writeData(File mf, averageSensorVals *average, int is_fire, float fire_prob);
 bool writeHeader(File mf, String header);
 
 // file object for SD card data and string for file name
@@ -97,8 +107,35 @@ volatile bool transmittedFlag = true;
 // disable interrupt when it's not needed
 volatile bool enableInterrupt = true;
 
+
+int freeRAM() {
+  // Estimate free RAM memory
+  // +---------------------+  <- high addresses
+  // |      STACK ↓        |  ← address of stack_dummy
+  // |                     |
+  // |     Free RAM        |
+  // |                     |
+  // |      HEAP ↑         |  ← result of malloc(4)
+  // +---------------------+  <- low addresses
+
+  // free RAM ≈ address_of_stack - address_of_heap
+  char stack_dummy = 0;
+  return &stack_dummy - (char*)malloc(4);
+}
+
+
 void setup() {
   Serial.begin(9600);
+  
+  Serial.print("Estimated free RAM: ");
+  Serial.println(freeRAM());
+  Serial.print("Model size: ");
+  Serial.println(model_tflite_len);
+
+  // Initialize the model from the included model data array
+  Serial.println("Starting model init...");
+  ml.begin(model_tflite);
+  Serial.println("Model is ready!");
 
   #ifdef SDCARD_MODE
   String filename = "tabor"; // default file name for saving data on SD, can be changed
@@ -121,7 +158,7 @@ void setup() {
   // if the file opened okay, write header to it:
   if (myFile) {
     // write header to file
-    writeHeader(myFile, "smoke,flame,gas,label");
+    writeHeader(myFile, "smoke,flame,gas,label, prob");
     // close the file:
     myFile.close();
 
@@ -156,6 +193,11 @@ void setup() {
   // set the function that will be called when packet transmission is finished
   lora.setDio0Action(setFlag);
 
+  // // Initialize the model from the included model data array
+  // Serial.println("Starting model init...");
+  // ml.begin(model_tflite);
+  // Serial.println("Model is ready!");
+
   // set pins modes
   pinMode(FlameSensorPin, INPUT_ANALOG);
   pinMode(SmokeSensorPin, INPUT_ANALOG);
@@ -169,20 +211,24 @@ void setup() {
 }
 
 void loop() {
-
+  
   if (transmittedFlag and (millis() - timeOfLastMeasurement) >= TIME_SPAN) {
     // Measure current values and count average
     measureAverageValues(&average_values);
-
+    
+    // Predict probability of flame
+    float fire_prob = getFireProbability();
+    // float fire_prob = 0.5;
+    int scaled_probability = (int)(fire_prob*PROB_SCALE);
+    
     #ifdef SDCARD_MODE // save to sd card only if control variable SDCARD_MODE defined 
-        
       myFile = SD.open(full_filename, FILE_WRITE);
 
       // if the file opened okay, write to it:
       if (myFile) {
       
         int is_fire = !digitalRead(FireSwitch);
-        writeData(myFile, &average_values, is_fire); // write data to SD card
+        writeData(myFile, &average_values, is_fire, fire_prob); // write data to SD card
         myFile.close(); // close the file
         Serial.println("Golden label, switch is:");
         Serial.println(is_fire);
@@ -201,9 +247,13 @@ void loop() {
 
     int scaled_vbat = (int)(v_bat*VOLTAGE_SCALE);
 
-    // Predict probability of flame
-    float fire_prob = 0.053;
-    int scaled_probability = (int)(fire_prob*PROB_SCALE);
+
+    Serial.print("Input: ");
+    Serial.print(average_values.smoke); Serial.print(", ");
+    Serial.print(average_values.flame); Serial.print(", ");
+    Serial.print(average_values.gas);
+    Serial.print("  =>  Fire probability: ");
+    Serial.println(fire_prob);
 
     // Encode int into 2 bytes
     encodedInTwoBytes encoded_smoke;
@@ -333,6 +383,16 @@ void measureBattery(float *vbat){
   //Serial.println(*vbat);
 }
 
+float getFireProbability(){
+  // Store input values in an array as expected by EloquentTinyML
+  float input[NUMBER_OF_NET_INPUTS] = { average_values.smoke, average_values.flame, average_values.gas };
+
+  // Predict output
+  float predicted = ml.predict(input);
+
+  return predicted;
+}
+
 // SD card related functions: ---------------------
 #ifdef SDCARD_MODE
 
@@ -350,7 +410,7 @@ int getNumFiles(File dir) {
 
 }
 
-bool writeData(File mf, averageSensorVals *average, int is_fire){
+bool writeData(File mf, averageSensorVals *average, int is_fire, float fire_prob){
   mf.print(average->smoke);
   mf.print(',');
   mf.print(average->flame);
@@ -358,6 +418,8 @@ bool writeData(File mf, averageSensorVals *average, int is_fire){
   mf.print(average->gas);
   mf.print(',');
   mf.print(is_fire);
+  mf.print(',');
+  mf.print(fire_prob);
   mf.print('\n');
   return true;
 }
