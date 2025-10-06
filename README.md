@@ -4,6 +4,8 @@ In this project, we developed and tested a prototype of a forest fire detector d
 The detection system consists of several strategically placed measurement modules (end nodes) and a central unit that receives the collected data and transmits it via a mobile network to a server for further processing and possible alarm activation. Communication between the end nodes and the central unit is implemented using LoRa radio technology.
 For estimating the fire probability, we trained a small neural network.
 
+<img src="detector.jpeg" alt="Fire detector" width="50%">
+
 ## Hardware Components
 
 **End Node**
